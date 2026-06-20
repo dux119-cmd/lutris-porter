@@ -1,3 +1,9 @@
+# TODO
+ - Strip/ignore the script: and indented content in the YML
+ - Strip other unecessary content from the YML
+ - Exclude files from the game dir:
+    - config_info lutris.json shadercache/ gstreamer-1.0/ dosdevices/ drive_c/proton_shortcuts/
+
 # lutris-porter
 
 Export a Lutris game (files, database row, config, artwork) to a single
