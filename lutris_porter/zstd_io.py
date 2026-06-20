@@ -10,15 +10,15 @@ so the importer can open any window size our own exporter might have been
 told to use, regardless of which level/window-log the export used.
 """
 
+import os
+from compression import zstd
 from pathlib import Path
 from typing import IO
 
-from compression import zstd
-
 from .errors import InvalidCompressionSettingError
 
-DEFAULT_COMPRESSION_LEVEL = 12
-DEFAULT_WINDOW_LOG = 27  # 128 MiB back-reference window
+DEFAULT_COMPRESSION_LEVEL = 5
+DEFAULT_WINDOW_LOG = 31
 
 
 def validate_compression_level(level: int) -> int:
@@ -39,9 +39,12 @@ def validate_window_log(window_log: int) -> int:
 
 def open_for_write(path: Path, level: int, window_log: int) -> IO[bytes]:
     options = {
+        zstd.CompressionParameter.checksum_flag: True,
         zstd.CompressionParameter.compression_level: level,
         zstd.CompressionParameter.window_log: window_log,
-        zstd.CompressionParameter.enable_long_distance_matching: 1,
+        zstd.CompressionParameter.strategy: zstd.Strategy.lazy2,
+        zstd.CompressionParameter.nb_workers: os.cpu_count() + 1,
+        zstd.CompressionParameter.enable_long_distance_matching: True,
     }
     return zstd.ZstdFile(path, "wb", options=options)
 

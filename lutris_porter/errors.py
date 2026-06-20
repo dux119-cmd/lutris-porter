@@ -27,9 +27,9 @@ class GameDirectoryNotFoundError(LutrisPorterError):
         )
 
 
-class SlugAlreadyExistsError(LutrisPorterError):
+class InstalledSlugAlreadyExistsError(LutrisPorterError):
     def __init__(self, slug: str) -> None:
-        super().__init__(f"A game with slug '{slug}' already exists in the database")
+        super().__init__(f"A game with slug '{slug}' is already installed in the database")
 
 
 class DestinationExistsError(LutrisPorterError):

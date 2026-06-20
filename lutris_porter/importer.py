@@ -14,7 +14,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .db import connect, insert_game
-from .errors import DestinationExistsError, LutrisPorterError, SlugAlreadyExistsError
+from .errors import DestinationExistsError, LutrisPorterError, InstalledSlugAlreadyExistsError
 from .paths import ARTWORK_EXTENSIONS, ARTWORK_KINDS, GAME_ROOT_PLACEHOLDER, LutrisPaths
 from .pathrewrite import restore_paths
 from .zstd_io import open_for_read
@@ -25,7 +25,7 @@ GAME_MEMBER_PREFIX = "game"
 
 def import_game(paths: LutrisPaths, tarball_path: Path, target_dir: Path) -> str:
     with open_for_read(tarball_path) as decompressed_stream:
-        with tarfile.open(fileobj=compressed_stream, mode="r|") as tar:
+        with tarfile.open(fileobj=decompressed_stream, mode="r|") as tar:
             return _import_members(paths, tar, target_dir)
 
 
@@ -100,7 +100,7 @@ def _resolve_install_root(
             if row["installed"] == 0:
                 existing_id = row["id"]
             else:
-                raise SlugAlreadyExistsError(slug)
+                raise InstalledSlugAlreadyExistsError(slug)
 
     install_root = target_dir / slug
     if install_root.exists():
