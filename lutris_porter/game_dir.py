@@ -17,16 +17,15 @@ from typing import Any
 
 from .errors import GameDirectoryNotFoundError
 from .paths import LutrisPaths
-from .yaml_io import load_yaml
 
 
 def find_game_root(
-    paths: LutrisPaths, config: dict[str, Any], slug: str, fallback_directory: str | None
+    paths: LutrisPaths, config_text: str, slug: str, fallback_directory: str | None
 ) -> Path:
     root = (
-        _root_from_absolute_exe(config, slug)
+        _root_from_absolute_exe(config_text, slug)
         or fallback_directory
-        or _root_from_default_game_path(paths, config, slug)
+        or _root_from_default_game_path(paths, config_text, slug)
     )
     if root:
         return Path(root)
@@ -36,20 +35,33 @@ def find_game_root(
 def read_default_game_path(paths: LutrisPaths) -> str | None:
     if not paths.system_yml_path.exists():
         return None
-    system_config = load_yaml(paths.system_yml_path)
-    system_section = system_config.get("system")
-    game_path = system_section.get("game_path") if isinstance(system_section, dict) else None
-    return game_path if isinstance(game_path, str) and game_path else None
+    try:
+        content = paths.system_yml_path.read_text(encoding="utf-8")
+        for line in content.splitlines():
+            if "game_path:" in line:
+                parts = line.split("game_path:", 1)
+                if len(parts) > 1:
+                    val = parts[1].strip().strip("'\"")
+                    if val:
+                        return val
+    except Exception:
+        pass
+    return None
 
 
-def _exe_path(config: dict[str, Any]) -> str | None:
-    game_section = config.get("game")
-    exe = game_section.get("exe") if isinstance(game_section, dict) else None
-    return exe if isinstance(exe, str) and exe else None
+def _exe_path(config_text: str) -> str | None:
+    for line in config_text.splitlines():
+        if "exe:" in line:
+            parts = line.split("exe:", 1)
+            if len(parts) > 1:
+                val = parts[1].strip().strip("'\"")
+                if val:
+                    return val
+    return None
 
 
-def _root_from_absolute_exe(config: dict[str, Any], slug: str) -> str | None:
-    exe = _exe_path(config)
+def _root_from_absolute_exe(config_text: str, slug: str) -> str | None:
+    exe = _exe_path(config_text)
     if not exe or not exe.startswith("/"):
         return None
 
@@ -61,8 +73,8 @@ def _root_from_absolute_exe(config: dict[str, Any], slug: str) -> str | None:
     return "/".join(segments[: index + 1])
 
 
-def _root_from_default_game_path(paths: LutrisPaths, config: dict[str, Any], slug: str) -> str | None:
-    exe = _exe_path(config)
+def _root_from_default_game_path(paths: LutrisPaths, config_text: str, slug: str) -> str | None:
+    exe = _exe_path(config_text)
     if not exe or exe.startswith("/"):
         return None
 

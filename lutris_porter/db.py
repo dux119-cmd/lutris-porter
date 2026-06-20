@@ -37,7 +37,7 @@ def insert_game(connection: sqlite3.Connection, game: dict[str, Any]) -> int:
     columns = ", ".join(game.keys())
     placeholders = ", ".join("?" for _ in game)
     cursor = connection.execute(
-        f"INSERT INTO games ({columns}) VALUES ({placeholders})",
+        f"INSERT OR REPLACE INTO games ({columns}) VALUES ({placeholders})",
         tuple(game.values()),
     )
     connection.commit()
