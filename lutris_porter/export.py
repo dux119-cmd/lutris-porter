@@ -36,6 +36,7 @@ def export_game(
     *,
     compression_level: int = DEFAULT_COMPRESSION_LEVEL,
     window_log: int = DEFAULT_WINDOW_LOG,
+    game_dir_override: Path | None = None,
 ) -> Path:
     validate_compression_level(compression_level)
     validate_window_log(window_log)
@@ -50,7 +51,9 @@ def export_game(
         raise ConfigNotFoundError(config_path)
     config_text = config_path.read_text(encoding="utf-8")
 
-    game_root = find_game_root(paths, config_text, slug, game_row.get("directory"))
+    game_root = find_game_root(
+        paths, config_text, slug, game_row.get("directory"), game_dir_override=game_dir_override
+    )
 
     target_dir.mkdir(parents=True, exist_ok=True)
     final_path = target_dir / f"{slug}.tar.zst"
@@ -102,7 +105,7 @@ def _write_tarball(
             _add_json_member(
                 tar,
                 f"{slug}/database.json",
-                strip_paths(cleaned_game_row, slug, GAME_ROOT_PLACEHOLDER),
+                strip_paths(cleaned_game_row, slug, GAME_ROOT_PLACEHOLDER, game_root=game_root),
             )
 
             # Simple text string search/replace handling for config file

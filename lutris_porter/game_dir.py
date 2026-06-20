@@ -2,10 +2,11 @@
 
 Three sources are tried in order, most explicit first:
 
-1. config.yml's game.exe, when it's an absolute path containing the slug
+1. A manual CLI game directory override path.
+2. config.yml's game.exe, when it's an absolute path containing the slug
    as a path segment - everything up to and including that segment.
-2. The database's `directory` column, when present.
-3. config.yml's game.exe, when it's a *relative* path - in that case
+3. The database's `directory` column, when present.
+4. config.yml's game.exe, when it's a *relative* path - in that case
    Lutris installed the game under its global default games directory,
    read from system.yml's system.game_path, at game_path/slug.
 
@@ -20,8 +21,15 @@ from .paths import LutrisPaths
 
 
 def find_game_root(
-    paths: LutrisPaths, config_text: str, slug: str, fallback_directory: str | None
+    paths: LutrisPaths,
+    config_text: str,
+    slug: str,
+    fallback_directory: str | None,
+    game_dir_override: Path | None = None,
 ) -> Path:
+    if game_dir_override is not None:
+        return game_dir_override
+
     root = (
         _root_from_absolute_exe(config_text, slug)
         or fallback_directory

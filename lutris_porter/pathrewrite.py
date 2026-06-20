@@ -10,6 +10,7 @@ how to fix them anyway.
 
 from collections.abc import Callable
 from typing import Any
+from pathlib import Path
 
 PathTransform = Callable[[str], str]
 
@@ -25,7 +26,13 @@ def map_strings(value: Any, transform: PathTransform) -> Any:
     return value
 
 
-def strip_game_root(path: str, slug: str, placeholder: str) -> str:
+def strip_game_root(path: str, slug: str, placeholder: str, game_root: Path | None = None) -> str:
+    if game_root is not None:
+        root_str = str(game_root)
+        if path.startswith(root_str):
+            remainder = path[len(root_str) :].lstrip("/")
+            return f"{placeholder}/{remainder}" if remainder else placeholder
+
     segments = _path_segments(path)
     if segments is None or slug not in segments:
         return path
@@ -38,8 +45,8 @@ def restore_game_root(path: str, placeholder: str, new_root: str) -> str:
     return path.replace(placeholder, new_root) if placeholder in path else path
 
 
-def strip_paths(data: Any, slug: str, placeholder: str) -> Any:
-    return map_strings(data, lambda value: strip_game_root(value, slug, placeholder))
+def strip_paths(data: Any, slug: str, placeholder: str, game_root: Path | None = None) -> Any:
+    return map_strings(data, lambda value: strip_game_root(value, slug, placeholder, game_root))
 
 
 def restore_paths(data: Any, new_root: str, placeholder: str) -> Any:

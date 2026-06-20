@@ -27,6 +27,12 @@ def build_parser() -> argparse.ArgumentParser:
         "target_dir", type=Path, help="Directory to write <slug>.tar.zst into"
     )
     export_parser.add_argument(
+        "--game-dir",
+        type=Path,
+        metavar="DIR",
+        help="Explicitly specify the game's installation directory (overrides automatic discovery)",
+    )
+    export_parser.add_argument(
         "--zstd-level",
         type=int,
         default=DEFAULT_COMPRESSION_LEVEL,
@@ -76,6 +82,7 @@ def _dispatch(parser: argparse.ArgumentParser, paths: LutrisPaths, args: argpars
             args.target_dir,
             compression_level=args.zstd_level,
             window_log=args.zstd_window_log,
+            game_dir_override=args.game_dir,
         )
         print(f"Exported '{args.slug}' to {tarball}")
     elif args.command == "import":

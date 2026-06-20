@@ -22,8 +22,9 @@ class ConfigNotFoundError(LutrisPorterError):
 class GameDirectoryNotFoundError(LutrisPorterError):
     def __init__(self, slug: str) -> None:
         super().__init__(
-            f"Could not determine the install directory for '{slug}' "
-            "(checked config.yml's game.exe and the database's directory column)"
+            f"Could not derive the game's directory from the slug '{slug}' or YML records."
+            "\n\n"
+            "Use the '--game-dir /path/to/game' export flag instead."
         )
 
 
