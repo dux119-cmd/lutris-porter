@@ -1,6 +1,6 @@
 """Wraps compression.zstd with the specific settings lutris-porter uses.
 
-Defaults favor compression ratio over speed - level 12 with a 128 MiB
+Defaults favor compression ratio over speed - level 5 with a 2 GiB
 long-distance-matching window - since a game is archived once and read
 rarely, the opposite tradeoff from something like a build cache. Both are
 adjustable via the CLI.

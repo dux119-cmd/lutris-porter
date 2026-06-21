@@ -1,8 +1,17 @@
 # TODO
- - Strip/ignore the script: and indented content in the YML
- - Strip other unecessary content from the YML
- - Exclude files from the game dir:
-    - config_info lutris.json shadercache/ gstreamer-1.0/ dosdevices/ drive_c/proton_shortcuts/
+ - When exporting, automatically expand any path that start with '~' as the user's home directory prior to further processing.
+
+ - When exporting, exclude the following top-level keys (and any space-indented subsequent child content) from the game's config YML: game_slug, name, script, service, service_id, slug
+
+ - When exporting, exclude the following files/directories relative to the game's directory: config_info, lutris.json, shadercache/, gstreamer-1.0/, dosdevices/{d* through z*}, drive_c/proton_shortcuts/
+
+ - When exporting, allow archives to by chunked into a given MB size (provided via CLI arg), where file chunks are postfixed by a numbered value, like 001, 002, where the padding width is calculated from the size of the gamedir.
+
+ - When importing, handle reading/streaming import archives from a web URL.
+
+ - When importing, if the archive extension is the first chunk (ie: .1, .01, .001, etc) then the reader automatically increments into the next chunk until zstd reports completion of the archive.
+
+ - Alternatively, allow importing from a text-file/URL listing the chunks sequentially, line-by-line, be them files or URLs. In this case, the lines provide the sequence of chunks (no need for automatic increment).
 
 # lutris-porter
 
