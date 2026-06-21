@@ -23,7 +23,8 @@ COPY_CHUNK_SIZE = 1024 * 1024
 GAME_MEMBER_PREFIX = "game"
 
 
-def import_game(paths: LutrisPaths, tarball_path: Path, target_dir: Path) -> str:
+def import_game(paths: LutrisPaths, tarball_path: str | Path, target_dir: Path) -> str:
+    target_dir = Path(str(target_dir)).expanduser()
     with open_for_read(tarball_path) as decompressed_stream:
         with tarfile.open(fileobj=decompressed_stream, mode="r|") as tar:
             return _import_members(paths, tar, target_dir)
