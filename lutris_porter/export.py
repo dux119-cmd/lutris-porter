@@ -115,7 +115,9 @@ def export_game(
             _add_json_member(
                 tar,
                 f"{slug}/database.json",
-                strip_paths(cleaned_game_row, slug, GAME_ROOT_PLACEHOLDER, game_root=game_root),
+                strip_paths(
+                    cleaned_game_row, slug, GAME_ROOT_PLACEHOLDER, game_root=game_root
+                ),
             )
 
             stripped_config = config_text.replace(str(game_root), GAME_ROOT_PLACEHOLDER)
@@ -128,7 +130,7 @@ def export_game(
                 if tarinfo.name == prefix:
                     return tarinfo
                 if tarinfo.name.startswith(prefix + "/"):
-                    rel_path = tarinfo.name[len(prefix) + 1:]
+                    rel_path = tarinfo.name[len(prefix) + 1 :]
                 else:
                     return tarinfo
 
@@ -141,10 +143,12 @@ def export_game(
                     return None
                 if rel_path == "gstreamer-1.0" or rel_path.startswith("gstreamer-1.0/"):
                     return None
-                if rel_path == "drive_c/proton_shortcuts" or rel_path.startswith("drive_c/proton_shortcuts/"):
+                if rel_path == "drive_c/proton_shortcuts" or rel_path.startswith(
+                    "drive_c/proton_shortcuts/"
+                ):
                     return None
                 if rel_path.startswith("dosdevices/"):
-                    sub = rel_path[len("dosdevices/"):]
+                    sub = rel_path[len("dosdevices/") :]
                     if sub:
                         first_char = sub[0].lower()
                         if "d" <= first_char <= "z":
@@ -171,10 +175,9 @@ def _add_text_member(tar: tarfile.TarFile, arcname: str, text: str) -> None:
 
 
 def _add_artwork(tar: tarfile.TarFile, paths: LutrisPaths, slug: str) -> None:
-    from .paths import ARTWORK_EXTENSIONS
     for kind in ARTWORK_KINDS:
         dest_dir = paths.artwork_dir(kind)
         stem = kind.stem.format(slug=slug)
-        found_path = find_existing_file(dest_dir, stem, ARTWORK_EXTENSIONS)
+        found_path = find_existing_file(dest_dir, stem)
         if found_path and found_path.exists():
             tar.add(found_path, arcname=f"{slug}/{kind.export_name}{found_path.suffix}")

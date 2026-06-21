@@ -14,9 +14,13 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .db import connect, insert_game
-from .errors import DestinationExistsError, LutrisPorterError, InstalledSlugAlreadyExistsError
-from .paths import ARTWORK_EXTENSIONS, ARTWORK_KINDS, GAME_ROOT_PLACEHOLDER, LutrisPaths
+from .errors import (
+    DestinationExistsError,
+    InstalledSlugAlreadyExistsError,
+    LutrisPorterError,
+)
 from .pathrewrite import restore_paths
+from .paths import ARTWORK_EXTENSIONS, ARTWORK_KINDS, GAME_ROOT_PLACEHOLDER, LutrisPaths
 from .zstd_io import open_for_read
 
 COPY_CHUNK_SIZE = 1024 * 1024
@@ -42,13 +46,17 @@ def _import_members(paths: LutrisPaths, tar: tarfile.TarFile, target_dir: Path) 
         if member_path is None:
             continue  # the bare top-level slug/ entry, if present
 
-        if member_path in ("database.json", "database.yml"):
+        if member_path == "database.json":
             database = json.loads(_read_member(tar, member).decode("utf-8"))
-            slug, install_root, existing_id = _resolve_install_root(paths, database, target_dir)
+            slug, install_root, existing_id = _resolve_install_root(
+                paths, database, target_dir
+            )
             continue
 
         if slug is None or install_root is None:
-            raise LutrisPorterError("Malformed export: database.json must be the first entry")
+            raise LutrisPorterError(
+                "Malformed export: database.json must be the first entry"
+            )
 
         if member_path == "config.yml":
             config_text = _read_member(tar, member).decode("utf-8")
@@ -60,8 +68,10 @@ def _import_members(paths: LutrisPaths, tar: tarfile.TarFile, target_dir: Path) 
     if database is None or slug is None or install_root is None:
         raise LutrisPorterError("Malformed export: no database.json found")
 
-    restored_database = restore_paths(database, str(install_root), GAME_ROOT_PLACEHOLDER)
-    
+    restored_database = restore_paths(
+        database, str(install_root), GAME_ROOT_PLACEHOLDER
+    )
+
     if config_text is not None:
         restored_config = config_text.replace(GAME_ROOT_PLACEHOLDER, str(install_root))
     else:
@@ -83,7 +93,9 @@ def _strip_top_level(name: str) -> str | None:
 
 
 def _is_game_member(member_path: str) -> bool:
-    return member_path == GAME_MEMBER_PREFIX or member_path.startswith(f"{GAME_MEMBER_PREFIX}/")
+    return member_path == GAME_MEMBER_PREFIX or member_path.startswith(
+        f"{GAME_MEMBER_PREFIX}/"
+    )
 
 
 def _read_member(tar: tarfile.TarFile, member: tarfile.TarInfo) -> bytes:
@@ -96,7 +108,9 @@ def _resolve_install_root(
     slug = database["slug"]
     existing_id = None
     with connect(paths.db_path) as connection:
-        row = connection.execute("SELECT id, installed FROM games WHERE slug = ?", (slug,)).fetchone()
+        row = connection.execute(
+            "SELECT id, installed FROM games WHERE slug = ?", (slug,)
+        ).fetchone()
         if row:
             if row["installed"] == 0:
                 existing_id = row["id"]
@@ -134,7 +148,11 @@ def _extract_game_member(
 
 
 def _install_artwork_member(
-    tar: tarfile.TarFile, member: tarfile.TarInfo, member_path: str, paths: LutrisPaths, slug: str
+    tar: tarfile.TarFile,
+    member: tarfile.TarInfo,
+    member_path: str,
+    paths: LutrisPaths,
+    slug: str,
 ) -> None:
     for kind in ARTWORK_KINDS:
         for extension in ARTWORK_EXTENSIONS:
@@ -148,7 +166,9 @@ def _install_artwork_member(
             return
 
 
-def _prepare_for_insert(database: dict[str, Any], existing_id: int | None) -> dict[str, Any]:
+def _prepare_for_insert(
+    database: dict[str, Any], existing_id: int | None
+) -> dict[str, Any]:
     """Clobber/overwrite fields with the exported content per-usual.
     If existing_id is provided, reuse it. Otherwise, let SQLite assign a fresh one.
     """
