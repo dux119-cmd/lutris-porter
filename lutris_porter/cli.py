@@ -10,6 +10,10 @@ from .paths import LutrisPaths
 from .zstd_io import DEFAULT_COMPRESSION_LEVEL, DEFAULT_WINDOW_LOG
 
 
+def _expand_path(s: str) -> Path:
+    return Path(s).expanduser()
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="lutris-porter",
@@ -24,11 +28,11 @@ def build_parser() -> argparse.ArgumentParser:
     export_parser = subparsers.add_parser("export", help="Export a game to a tarball")
     export_parser.add_argument("slug", help="Slug of the game to export")
     export_parser.add_argument(
-        "target_dir", type=Path, help="Directory to write <slug>.tar.zst into"
+        "target_dir", type=_expand_path, help="Directory to write <slug>.tar.zst into"
     )
     export_parser.add_argument(
         "--game-dir",
-        type=Path,
+        type=_expand_path,
         metavar="DIR",
         help="Explicitly specify the game's installation directory (overrides automatic discovery)",
     )
@@ -44,20 +48,19 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=DEFAULT_WINDOW_LOG,
         metavar="N",
-        help=f"zstd window log (default: {DEFAULT_WINDOW_LOG})",
-    )
-    export_parser.add_argument(
-        "--chunk-size",
-        type=int,
-        metavar="MB",
-        help="Chunk size in MB to split the exported archive",
+        help=(
+            "zstd window size as a power of two, e.g. 27 = 128 MiB; higher "
+            f"can compress better on large files but uses more memory (default: {DEFAULT_WINDOW_LOG})"
+        ),
     )
 
-    import_parser = subparsers.add_parser("import", help="Import a game from a tarball or chunk list")
+    import_parser = subparsers.add_parser("import", help="Import a game from a tarball")
     import_parser.add_argument(
-        "tarball", type=str, help="Path or URL to the exported archive or chunk list file/URL"
+        "tarball", help="Local path (with ~ support) or http(s):// URL to the <slug>.tar.zst file"
     )
-    import_parser.add_argument("target_dir", type=Path, help="Directory to install the game into")
+    import_parser.add_argument(
+        "target_dir", type=_expand_path, help="Directory to install the game into"
+    )
 
     return parser
 
@@ -86,7 +89,6 @@ def _dispatch(parser: argparse.ArgumentParser, paths: LutrisPaths, args: argpars
             compression_level=args.zstd_level,
             window_log=args.zstd_window_log,
             game_dir_override=args.game_dir,
-            chunk_size=args.chunk_size,
         )
         print(f"Exported '{args.slug}' to {tarball}")
     elif args.command == "import":
@@ -98,8 +100,7 @@ def _dispatch(parser: argparse.ArgumentParser, paths: LutrisPaths, args: argpars
 
 def _print_slugs(paths: LutrisPaths) -> None:
     with connect(paths.db_path) as connection:
-        slugs = list_slugs(connection)
-        for slug in slugs:
+        for slug in list_slugs(connection):
             print(slug)
 
 

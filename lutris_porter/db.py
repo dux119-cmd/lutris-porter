@@ -29,10 +29,6 @@ def find_game_by_slug(connection: sqlite3.Connection, slug: str) -> dict[str, An
     return dict(row) if row else None
 
 
-def slug_exists(connection: sqlite3.Connection, slug: str) -> bool:
-    return find_game_by_slug(connection, slug) is not None
-
-
 def insert_game(connection: sqlite3.Connection, game: dict[str, Any]) -> int:
     columns = ", ".join(game.keys())
     placeholders = ", ".join("?" for _ in game)

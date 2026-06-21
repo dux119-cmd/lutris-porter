@@ -3,6 +3,9 @@ its destination. database.json and config.yml are read first (the importer
 relies on export_game writing them before the game/ directory), then the
 game/ directory's members are extracted directly into the final install
 location member-by-member - no intermediate full copy.
+
+The tarball source may be a local file path (with ~ expansion) or an
+https:// / http:// URL.
 """
 
 import json
@@ -10,28 +13,43 @@ import os
 import shutil
 import tarfile
 import time
+import urllib.error
+import urllib.request
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import IO, Any
 
 from .db import connect, insert_game
-from .errors import (
-    DestinationExistsError,
-    InstalledSlugAlreadyExistsError,
-    LutrisPorterError,
-)
-from .pathrewrite import restore_paths
+from .errors import DestinationExistsError, InstalledSlugAlreadyExistsError, LutrisPorterError, TarballFetchError
 from .paths import ARTWORK_EXTENSIONS, ARTWORK_KINDS, GAME_ROOT_PLACEHOLDER, LutrisPaths
+from .pathrewrite import restore_paths
 from .zstd_io import open_for_read
 
 COPY_CHUNK_SIZE = 1024 * 1024
 GAME_MEMBER_PREFIX = "game"
 
 
-def import_game(paths: LutrisPaths, tarball_path: str | Path, target_dir: Path) -> str:
-    target_dir = Path(str(target_dir)).expanduser()
-    with open_for_read(tarball_path) as decompressed_stream:
-        with tarfile.open(fileobj=decompressed_stream, mode="r|") as tar:
-            return _import_members(paths, tar, target_dir)
+@contextmanager
+def _open_source(tarball: Path | str) -> Iterator[IO[bytes]]:
+    """Yield a readable byte stream for a local path or HTTP(S) URL."""
+    if isinstance(tarball, str) and tarball.startswith(("http://", "https://")):
+        try:
+            with urllib.request.urlopen(tarball) as response:
+                yield response
+        except urllib.error.URLError as exc:
+            raise TarballFetchError(tarball, str(exc.reason)) from exc
+    else:
+        path = Path(tarball).expanduser() if isinstance(tarball, str) else tarball.expanduser()
+        with open(path, "rb") as f:
+            yield f
+
+
+def import_game(paths: LutrisPaths, tarball: Path | str, target_dir: Path) -> str:
+    with _open_source(tarball) as raw:
+        with open_for_read(raw) as decompressed_stream:
+            with tarfile.open(fileobj=decompressed_stream, mode="r|") as tar:
+                return _import_members(paths, tar, target_dir)
 
 
 def _import_members(paths: LutrisPaths, tar: tarfile.TarFile, target_dir: Path) -> str:
@@ -46,17 +64,13 @@ def _import_members(paths: LutrisPaths, tar: tarfile.TarFile, target_dir: Path) 
         if member_path is None:
             continue  # the bare top-level slug/ entry, if present
 
-        if member_path == "database.json":
+        if member_path in ("database.json", "database.yml"):
             database = json.loads(_read_member(tar, member).decode("utf-8"))
-            slug, install_root, existing_id = _resolve_install_root(
-                paths, database, target_dir
-            )
+            slug, install_root, existing_id = _resolve_install_root(paths, database, target_dir)
             continue
 
         if slug is None or install_root is None:
-            raise LutrisPorterError(
-                "Malformed export: database.json must be the first entry"
-            )
+            raise LutrisPorterError("Malformed export: database.json must be the first entry")
 
         if member_path == "config.yml":
             config_text = _read_member(tar, member).decode("utf-8")
@@ -68,14 +82,11 @@ def _import_members(paths: LutrisPaths, tar: tarfile.TarFile, target_dir: Path) 
     if database is None or slug is None or install_root is None:
         raise LutrisPorterError("Malformed export: no database.json found")
 
-    restored_database = restore_paths(
-        database, str(install_root), GAME_ROOT_PLACEHOLDER
-    )
+    restored_database = restore_paths(database, str(install_root), GAME_ROOT_PLACEHOLDER)
 
-    if config_text is not None:
-        restored_config = config_text.replace(GAME_ROOT_PLACEHOLDER, str(install_root))
-    else:
-        restored_config = ""
+    restored_config = (
+        config_text.replace(GAME_ROOT_PLACEHOLDER, str(install_root)) if config_text else ""
+    )
 
     config_file_path = paths.games_config_dir / f"{restored_database['configpath']}.yml"
     config_file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -93,9 +104,7 @@ def _strip_top_level(name: str) -> str | None:
 
 
 def _is_game_member(member_path: str) -> bool:
-    return member_path == GAME_MEMBER_PREFIX or member_path.startswith(
-        f"{GAME_MEMBER_PREFIX}/"
-    )
+    return member_path == GAME_MEMBER_PREFIX or member_path.startswith(f"{GAME_MEMBER_PREFIX}/")
 
 
 def _read_member(tar: tarfile.TarFile, member: tarfile.TarInfo) -> bytes:
@@ -140,7 +149,7 @@ def _extract_game_member(
         return
 
     if not member.isfile():
-        return  # skip device/fifo/socket members - irrelevant to game directories
+        return  # skip device/fifo/socket members
 
     with destination.open("wb") as out_file:
         shutil.copyfileobj(tar.extractfile(member), out_file, COPY_CHUNK_SIZE)
@@ -148,11 +157,7 @@ def _extract_game_member(
 
 
 def _install_artwork_member(
-    tar: tarfile.TarFile,
-    member: tarfile.TarInfo,
-    member_path: str,
-    paths: LutrisPaths,
-    slug: str,
+    tar: tarfile.TarFile, member: tarfile.TarInfo, member_path: str, paths: LutrisPaths, slug: str
 ) -> None:
     for kind in ARTWORK_KINDS:
         for extension in ARTWORK_EXTENSIONS:
@@ -166,18 +171,9 @@ def _install_artwork_member(
             return
 
 
-def _prepare_for_insert(
-    database: dict[str, Any], existing_id: int | None
-) -> dict[str, Any]:
-    """Clobber/overwrite fields with the exported content per-usual.
-    If existing_id is provided, reuse it. Otherwise, let SQLite assign a fresh one.
-    """
-    res = {
-        **database,
-        "lastplayed": None,
-        "playtime": 0,
-        "installed_at": int(time.time()),
-    }
+def _prepare_for_insert(database: dict[str, Any], existing_id: int | None) -> dict[str, Any]:
+    """Reset play stats and timestamps; reuse existing DB id if available."""
+    res = {**database, "lastplayed": None, "playtime": 0, "installed_at": int(time.time())}
     if existing_id is not None:
         res["id"] = existing_id
     elif "id" in res:

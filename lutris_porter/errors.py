@@ -44,3 +44,8 @@ class InvalidCompressionSettingError(LutrisPorterError):
     ) -> None:
         auto_note = " (or 0 for automatic)" if zero_means_auto else ""
         super().__init__(f"Invalid {name} {value}: must be between {lower} and {upper}{auto_note}")
+
+
+class TarballFetchError(LutrisPorterError):
+    def __init__(self, url: str, reason: str) -> None:
+        super().__init__(f"Failed to fetch tarball from {url!r}: {reason}")

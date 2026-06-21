@@ -1,7 +1,18 @@
+"""Streams a game's files, database row, config, and artwork straight into
+a zstd-compressed tarball. Nothing is staged or copied to a temporary
+location first - source files are read once and written once, which
+matters when a game install is tens of gigabytes.
+
+Member order inside the tarball is deliberate: database.json first, then
+config.yml and artwork, then the (potentially huge) game/ directory last.
+The importer relies on this order to extract game/ directly to its final
+destination in a single streaming pass.
+"""
+
 import io
 import json
-import math
 import tarfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -18,29 +29,58 @@ from .zstd_io import (
     validate_window_log,
 )
 
+EXCLUDED_CONFIG_KEYS = frozenset({"game_slug", "name", "script", "service", "service_id", "slug"})
 
-def filter_config_yaml(config_text: str) -> str:
-    exclude_keys = {"game_slug", "name", "script", "service", "service_id", "slug"}
-    lines = config_text.splitlines(keepends=True)
-    output = []
+EXCLUDED_GAME_PATHS = frozenset({
+    "config_info",
+    "lutris.json",
+    "shadercache",
+    "gstreamer-1.0",
+    "drive_c/proton_shortcuts",
+})
+
+_DOSDEVICES_DIR = "dosdevices"
+
+
+def strip_config_keys(text: str) -> str:
+    """Remove specified top-level YAML keys and their indented child lines."""
+    lines = text.splitlines(keepends=True)
+    result: list[str] = []
     skipping = False
     for line in lines:
-        if not line.strip():
-            if not skipping:
-                output.append(line)
-            continue
-        if line.startswith((" ", "\t")):
-            if not skipping:
-                output.append(line)
-        else:
-            parts = line.split(":", 1)
-            key = parts[0].strip()
-            if key in exclude_keys:
-                skipping = True
-            else:
-                skipping = False
-                output.append(line)
-    return "".join(output)
+        stripped = line.rstrip()
+        if stripped and not stripped[0].isspace():
+            # Non-indented, non-blank: new top-level key
+            key = stripped.split(":", 1)[0]
+            skipping = key in EXCLUDED_CONFIG_KEYS
+        # Blank lines and indented lines inherit current skipping state
+        if not skipping:
+            result.append(line)
+    return "".join(result)
+
+
+def _make_game_filter(slug: str) -> Callable[[tarfile.TarInfo], tarfile.TarInfo | None]:
+    prefix = f"{slug}/game/"
+
+    def _filter(info: tarfile.TarInfo) -> tarfile.TarInfo | None:
+        if not info.name.startswith(prefix):
+            return info
+        relative = info.name[len(prefix):]
+        for excluded in EXCLUDED_GAME_PATHS:
+            if relative == excluded or relative.startswith(f"{excluded}/"):
+                return None
+        # Exclude dosdevices/{d* through z*}
+        parts = relative.split("/", 2)
+        if (
+            len(parts) >= 2
+            and parts[0] == _DOSDEVICES_DIR
+            and parts[1]
+            and "d" <= parts[1][0] <= "z"
+        ):
+            return None
+        return info
+
+    return _filter
 
 
 def export_game(
@@ -51,124 +91,82 @@ def export_game(
     compression_level: int = DEFAULT_COMPRESSION_LEVEL,
     window_log: int = DEFAULT_WINDOW_LOG,
     game_dir_override: Path | None = None,
-    chunk_size: int | None = None,
 ) -> Path:
     validate_compression_level(compression_level)
     validate_window_log(window_log)
 
-    # Automatically expand any path that starts with '~'
-    target_dir = Path(str(target_dir)).expanduser()
-    if game_dir_override is not None:
-        game_dir_override = Path(str(game_dir_override)).expanduser()
-
     with connect(paths.db_path) as connection:
         game_row = find_game_by_slug(connection, slug)
-        if not game_row:
-            raise GameNotFoundError(slug)
+    if game_row is None:
+        raise GameNotFoundError(slug)
 
-    config_path = paths.games_config_dir / f"{slug}.yml"
+    config_path = paths.games_config_dir / f"{game_row['configpath']}.yml"
     if not config_path.exists():
         raise ConfigNotFoundError(config_path)
     config_text = config_path.read_text(encoding="utf-8")
 
-    # Exclude unwanted top-level keys from config
-    config_text = filter_config_yaml(config_text)
-
-    cleaned_game_row = dict(game_row)
-
     game_root = find_game_root(
-        paths,
-        config_text,
-        slug,
-        cleaned_game_row.get("directory"),
-        game_dir_override=game_dir_override,
+        paths, config_text, slug, game_row.get("directory"), game_dir_override=game_dir_override
     )
 
-    padding_width = 3
-    if chunk_size:
-        total_bytes = 0
-        if game_root.is_file():
-            total_bytes = game_root.stat().st_size
-        else:
-            for f in game_root.rglob("*"):
-                try:
-                    if f.is_file() and not f.is_symlink():
-                        total_bytes += f.stat().st_size
-                except Exception:
-                    pass
-        total_mb = total_bytes / (1024 * 1024)
-        estimated_chunks = math.ceil(total_mb / chunk_size)
-        if estimated_chunks < 1:
-            estimated_chunks = 1
-        padding_width = max(3, len(str(estimated_chunks)))
+    target_dir.mkdir(parents=True, exist_ok=True)
+    final_path = target_dir / f"{slug}.tar.zst"
+    partial_path = final_path.with_name(f"{final_path.name}.part")
 
-    target_archive = target_dir / f"{slug}.tar.zst"
+    try:
+        _write_tarball(
+            partial_path, paths, slug, game_row, config_text, game_root, compression_level, window_log
+        )
+    except BaseException:
+        partial_path.unlink(missing_ok=True)
+        raise
 
-    with open_for_write(
-        target_archive,
-        level=compression_level,
-        window_log=window_log,
-        chunk_size=chunk_size,
-        padding_width=padding_width,
-    ) as compressed_stream:
+    partial_path.rename(final_path)
+    return final_path
+
+
+def _write_tarball(
+    path: Path,
+    paths: LutrisPaths,
+    slug: str,
+    game_row: dict[str, Any],
+    config_text: str,
+    game_root: Path,
+    compression_level: int,
+    window_log: int,
+) -> None:
+    # Strip database 'id' unique key value
+    cleaned_game_row = {k: v for k, v in game_row.items() if k != "id"}
+
+    # Strip installed_at numeric suffix from configpath if present
+    installed_at = cleaned_game_row.get("installed_at")
+    configpath = cleaned_game_row.get("configpath", "")
+    if installed_at and configpath:
+        dash_stamp = f"-{installed_at}"
+        if configpath.endswith(dash_stamp):
+            cleaned_game_row["configpath"] = configpath[: -len(dash_stamp)]
+
+    with open_for_write(path, compression_level, window_log) as compressed_stream:
         with tarfile.open(fileobj=compressed_stream, mode="w|") as tar:
-            _add_json_member(
+            _add_bytes_member(
                 tar,
                 f"{slug}/database.json",
-                strip_paths(
-                    cleaned_game_row, slug, GAME_ROOT_PLACEHOLDER, game_root=game_root
-                ),
+                json.dumps(
+                    strip_paths(cleaned_game_row, slug, GAME_ROOT_PLACEHOLDER, game_root=game_root),
+                    indent=2,
+                ).encode("utf-8"),
             )
 
-            stripped_config = config_text.replace(str(game_root), GAME_ROOT_PLACEHOLDER)
-            _add_text_member(tar, f"{slug}/config.yml", stripped_config)
+            stripped_config = strip_config_keys(
+                config_text.replace(str(game_root), GAME_ROOT_PLACEHOLDER)
+            )
+            _add_bytes_member(tar, f"{slug}/config.yml", stripped_config.encode("utf-8"))
 
             _add_artwork(tar, paths, slug)
-
-            def tar_filter(tarinfo: tarfile.TarInfo) -> tarfile.TarInfo | None:
-                prefix = f"{slug}/game"
-                if tarinfo.name == prefix:
-                    return tarinfo
-                if tarinfo.name.startswith(prefix + "/"):
-                    rel_path = tarinfo.name[len(prefix) + 1 :]
-                else:
-                    return tarinfo
-
-                # Exclusion Rules
-                if rel_path == "config_info" or rel_path.startswith("config_info/"):
-                    return None
-                if rel_path == "lutris.json" or rel_path.startswith("lutris.json/"):
-                    return None
-                if rel_path == "shadercache" or rel_path.startswith("shadercache/"):
-                    return None
-                if rel_path == "gstreamer-1.0" or rel_path.startswith("gstreamer-1.0/"):
-                    return None
-                if rel_path == "drive_c/proton_shortcuts" or rel_path.startswith(
-                    "drive_c/proton_shortcuts/"
-                ):
-                    return None
-                if rel_path.startswith("dosdevices/"):
-                    sub = rel_path[len("dosdevices/") :]
-                    if sub:
-                        first_char = sub[0].lower()
-                        if "d" <= first_char <= "z":
-                            return None
-                return tarinfo
-
-            tar.add(game_root, arcname=f"{slug}/game", filter=tar_filter)
-
-    return target_archive
+            tar.add(game_root, arcname=f"{slug}/game", filter=_make_game_filter(slug))
 
 
-def _add_json_member(tar: tarfile.TarFile, arcname: str, data: Any) -> None:
-    content = json.dumps(data, indent=2).encode("utf-8")
-    info = tarfile.TarInfo(name=arcname)
-    info.size = len(content)
-    tar.addfile(info, io.BytesIO(content))
-
-
-def _add_text_member(tar: tarfile.TarFile, arcname: str, text: str) -> None:
-    content = text.encode("utf-8")
+def _add_bytes_member(tar: tarfile.TarFile, arcname: str, content: bytes) -> None:
     info = tarfile.TarInfo(name=arcname)
     info.size = len(content)
     tar.addfile(info, io.BytesIO(content))
@@ -176,8 +174,6 @@ def _add_text_member(tar: tarfile.TarFile, arcname: str, text: str) -> None:
 
 def _add_artwork(tar: tarfile.TarFile, paths: LutrisPaths, slug: str) -> None:
     for kind in ARTWORK_KINDS:
-        dest_dir = paths.artwork_dir(kind)
-        stem = kind.stem.format(slug=slug)
-        found_path = find_existing_file(dest_dir, stem)
-        if found_path and found_path.exists():
-            tar.add(found_path, arcname=f"{slug}/{kind.export_name}{found_path.suffix}")
+        source = find_existing_file(paths.artwork_dir(kind), kind.stem.format(slug=slug))
+        if source:
+            tar.add(source, arcname=f"{slug}/{kind.export_name}{source.suffix}")
