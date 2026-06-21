@@ -1,6 +1,6 @@
 [project]
 name = "lutris-porter"
-version = "0.2.0"
+version = "0.5.0"
 description = "Export and import Lutris games as portable compressed tarballs"
 requires-python = ">=3.14"
 dependencies = []

@@ -20,12 +20,12 @@ def build_parser() -> argparse.ArgumentParser:
         description="Export and import Lutris games as portable tarballs",
     )
     parser.add_argument(
-        "-l", "--list-games", action="store_true", help="List installed game slugs and exit"
+        "-l", "--list", action="store_true", help="List installed game slugs and exit"
     )
 
     subparsers = parser.add_subparsers(dest="command")
 
-    export_parser = subparsers.add_parser("export", help="Export a game to a tarball")
+    export_parser = subparsers.add_parser("export", help="Export a game to a portable tarball")
     export_parser.add_argument("slug", help="Slug of the game to export")
     export_parser.add_argument(
         "target_dir", type=_expand_path, help="Directory to write <slug>.tar.zst into"
@@ -54,7 +54,7 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    import_parser = subparsers.add_parser("import", help="Import a game from a tarball")
+    import_parser = subparsers.add_parser("import", help="Import a previously exported game from a tarball")
     import_parser.add_argument(
         "tarball", help="Local path (with ~ support) or http(s):// URL to the <slug>.tar.zst file"
     )
