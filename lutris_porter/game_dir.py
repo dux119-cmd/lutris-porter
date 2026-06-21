@@ -14,7 +14,6 @@ Raises if none of these can locate the game.
 """
 
 from pathlib import Path
-from typing import Any
 
 from .errors import GameDirectoryNotFoundError
 from .paths import LutrisPaths

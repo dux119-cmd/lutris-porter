@@ -20,7 +20,11 @@ def build_parser() -> argparse.ArgumentParser:
         description="Export and import Lutris games as portable tarballs",
     )
     parser.add_argument(
-        "-l", "--list", action="store_true", help="List installed game slugs and exit"
+        "-l",
+        "--list",
+        dest="list_games",
+        action="store_true",
+        help="List installed game slugs and exit",
     )
 
     subparsers = parser.add_subparsers(dest="command")
