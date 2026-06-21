@@ -38,3 +38,14 @@ lutris-porter import https://path/to/GAME.tar.zst INSTALL-DIR
 # imports game files to <install-dir>/<slug>/...
 ```
 
+## Tests
+
+```sh
+python -m unittest discover
+```
+
+Modules that import `zstd_io` (`cli`, `export`, `importer`) need Python's
+3.14+ `compression.zstd`; their tests skip themselves automatically on
+older interpreters instead of failing.
+
+
