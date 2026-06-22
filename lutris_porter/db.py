@@ -24,7 +24,9 @@ def list_slugs(connection: sqlite3.Connection) -> list[str]:
     return [row["slug"] for row in rows]
 
 
-def find_game_by_slug(connection: sqlite3.Connection, slug: str) -> dict[str, Any] | None:
+def find_game_by_slug(
+    connection: sqlite3.Connection, slug: str
+) -> dict[str, Any] | None:
     row = connection.execute("SELECT * FROM games WHERE slug = ?", (slug,)).fetchone()
     return dict(row) if row else None
 

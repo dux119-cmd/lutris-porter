@@ -29,7 +29,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers = parser.add_subparsers(dest="command")
 
-    export_parser = subparsers.add_parser("export", help="Export a game to a portable tarball")
+    export_parser = subparsers.add_parser(
+        "export", help="Export a game to a portable tarball"
+    )
     export_parser.add_argument("slug", help="Slug of the game to export")
     export_parser.add_argument(
         "target_dir", type=_expand_path, help="Directory to write <slug>.tar.zst into"
@@ -58,9 +60,12 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    import_parser = subparsers.add_parser("import", help="Import a previously exported game from a tarball")
+    import_parser = subparsers.add_parser(
+        "import", help="Import a previously exported game from a tarball"
+    )
     import_parser.add_argument(
-        "tarball", help="Local path (with ~ support) or http(s):// URL to the <slug>.tar.zst file"
+        "tarball",
+        help="Local path (with ~ support) or http(s):// URL to the <slug>.tar.zst file",
     )
     import_parser.add_argument(
         "target_dir", type=_expand_path, help="Directory to install the game into"
@@ -82,7 +87,9 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-def _dispatch(parser: argparse.ArgumentParser, paths: LutrisPaths, args: argparse.Namespace) -> None:
+def _dispatch(
+    parser: argparse.ArgumentParser, paths: LutrisPaths, args: argparse.Namespace
+) -> None:
     if args.list_games:
         _print_slugs(paths)
     elif args.command == "export":

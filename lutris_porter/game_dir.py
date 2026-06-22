@@ -80,7 +80,9 @@ def _root_from_absolute_exe(config_text: str, slug: str) -> str | None:
     return "/".join(segments[: index + 1])
 
 
-def _root_from_default_game_path(paths: LutrisPaths, config_text: str, slug: str) -> str | None:
+def _root_from_default_game_path(
+    paths: LutrisPaths, config_text: str, slug: str
+) -> str | None:
     exe = _exe_path(config_text)
     if not exe or exe.startswith("/"):
         return None

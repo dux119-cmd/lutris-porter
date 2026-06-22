@@ -29,15 +29,26 @@ from .zstd_io import (
     validate_window_log,
 )
 
-EXCLUDED_CONFIG_KEYS = frozenset({"game_slug", "name", "script", "service", "service_id", "slug"})
+EXCLUDED_CONFIG_KEYS = frozenset(
+    {
+        "game_slug",
+        "name",
+        "script",
+        "service",
+        "service_id",
+        "slug",
+    }
+)
 
-EXCLUDED_GAME_PATHS = frozenset({
-    "config_info",
-    "lutris.json",
-    "shadercache",
-    "gstreamer-1.0",
-    "drive_c/proton_shortcuts",
-})
+EXCLUDED_GAME_PATHS = frozenset(
+    {
+        "config_info",
+        "lutris.json",
+        "shadercache",
+        "gstreamer-1.0",
+        "drive_c/proton_shortcuts",
+    }
+)
 
 _DOSDEVICES_DIR = "dosdevices"
 
@@ -65,7 +76,7 @@ def _make_game_filter(slug: str) -> Callable[[tarfile.TarInfo], tarfile.TarInfo 
     def _filter(info: tarfile.TarInfo) -> tarfile.TarInfo | None:
         if not info.name.startswith(prefix):
             return info
-        relative = info.name[len(prefix):]
+        relative = info.name[len(prefix) :]
         for excluded in EXCLUDED_GAME_PATHS:
             if relative == excluded or relative.startswith(f"{excluded}/"):
                 return None
@@ -106,7 +117,11 @@ def export_game(
     config_text = config_path.read_text(encoding="utf-8")
 
     game_root = find_game_root(
-        paths, config_text, slug, game_row.get("directory"), game_dir_override=game_dir_override
+        paths,
+        config_text,
+        slug,
+        game_row.get("directory"),
+        game_dir_override=game_dir_override,
     )
 
     target_dir.mkdir(parents=True, exist_ok=True)
@@ -115,7 +130,14 @@ def export_game(
 
     try:
         _write_tarball(
-            partial_path, paths, slug, game_row, config_text, game_root, compression_level, window_log
+            partial_path,
+            paths,
+            slug,
+            game_row,
+            config_text,
+            game_root,
+            compression_level,
+            window_log,
         )
     except BaseException:
         partial_path.unlink(missing_ok=True)
@@ -152,7 +174,12 @@ def _write_tarball(
                 tar,
                 f"{slug}/database.json",
                 json.dumps(
-                    strip_paths(cleaned_game_row, slug, GAME_ROOT_PLACEHOLDER, game_root=game_root),
+                    strip_paths(
+                        cleaned_game_row,
+                        slug,
+                        GAME_ROOT_PLACEHOLDER,
+                        game_root=game_root,
+                    ),
                     indent=2,
                 ).encode("utf-8"),
             )
@@ -160,7 +187,9 @@ def _write_tarball(
             stripped_config = strip_config_keys(
                 config_text.replace(str(game_root), GAME_ROOT_PLACEHOLDER)
             )
-            _add_bytes_member(tar, f"{slug}/config.yml", stripped_config.encode("utf-8"))
+            _add_bytes_member(
+                tar, f"{slug}/config.yml", stripped_config.encode("utf-8")
+            )
 
             _add_artwork(tar, paths, slug)
             tar.add(game_root, arcname=f"{slug}/game", filter=_make_game_filter(slug))
@@ -174,6 +203,8 @@ def _add_bytes_member(tar: tarfile.TarFile, arcname: str, content: bytes) -> Non
 
 def _add_artwork(tar: tarfile.TarFile, paths: LutrisPaths, slug: str) -> None:
     for kind in ARTWORK_KINDS:
-        source = find_existing_file(paths.artwork_dir(kind), kind.stem.format(slug=slug))
+        source = find_existing_file(
+            paths.artwork_dir(kind), kind.stem.format(slug=slug)
+        )
         if source:
             tar.add(source, arcname=f"{slug}/{kind.export_name}{source.suffix}")

@@ -26,7 +26,9 @@ def map_strings(value: Any, transform: PathTransform) -> Any:
     return value
 
 
-def strip_game_root(path: str, slug: str, placeholder: str, game_root: Path | None = None) -> str:
+def strip_game_root(
+    path: str, slug: str, placeholder: str, game_root: Path | None = None
+) -> str:
     if game_root is not None:
         root_str = str(game_root)
         if path.startswith(root_str):
@@ -45,12 +47,18 @@ def restore_game_root(path: str, placeholder: str, new_root: str) -> str:
     return path.replace(placeholder, new_root) if placeholder in path else path
 
 
-def strip_paths(data: Any, slug: str, placeholder: str, game_root: Path | None = None) -> Any:
-    return map_strings(data, lambda value: strip_game_root(value, slug, placeholder, game_root))
+def strip_paths(
+    data: Any, slug: str, placeholder: str, game_root: Path | None = None
+) -> Any:
+    return map_strings(
+        data, lambda value: strip_game_root(value, slug, placeholder, game_root)
+    )
 
 
 def restore_paths(data: Any, new_root: str, placeholder: str) -> Any:
-    return map_strings(data, lambda value: restore_game_root(value, placeholder, new_root))
+    return map_strings(
+        data, lambda value: restore_game_root(value, placeholder, new_root)
+    )
 
 
 def _path_segments(value: str) -> list[str] | None:

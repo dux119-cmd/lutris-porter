@@ -21,7 +21,12 @@ from pathlib import Path, PurePosixPath
 from typing import IO, Any
 
 from .db import connect, insert_game
-from .errors import DestinationExistsError, InstalledSlugAlreadyExistsError, LutrisPorterError, TarballFetchError
+from .errors import (
+    DestinationExistsError,
+    InstalledSlugAlreadyExistsError,
+    LutrisPorterError,
+    TarballFetchError,
+)
 from .paths import ARTWORK_EXTENSIONS, ARTWORK_KINDS, GAME_ROOT_PLACEHOLDER, LutrisPaths
 from .pathrewrite import restore_paths
 from .zstd_io import open_for_read
@@ -40,7 +45,11 @@ def _open_source(tarball: Path | str) -> Iterator[IO[bytes]]:
         except urllib.error.URLError as exc:
             raise TarballFetchError(tarball, str(exc.reason)) from exc
     else:
-        path = Path(tarball).expanduser() if isinstance(tarball, str) else tarball.expanduser()
+        path = (
+            Path(tarball).expanduser()
+            if isinstance(tarball, str)
+            else tarball.expanduser()
+        )
         with open(path, "rb") as f:
             yield f
 
@@ -66,11 +75,15 @@ def _import_members(paths: LutrisPaths, tar: tarfile.TarFile, target_dir: Path) 
 
         if member_path in ("database.json", "database.yml"):
             database = json.loads(_read_member(tar, member).decode("utf-8"))
-            slug, install_root, existing_id = _resolve_install_root(paths, database, target_dir)
+            slug, install_root, existing_id = _resolve_install_root(
+                paths, database, target_dir
+            )
             continue
 
         if slug is None or install_root is None:
-            raise LutrisPorterError("Malformed export: database.json must be the first entry")
+            raise LutrisPorterError(
+                "Malformed export: database.json must be the first entry"
+            )
 
         if member_path == "config.yml":
             config_text = _read_member(tar, member).decode("utf-8")
@@ -82,10 +95,14 @@ def _import_members(paths: LutrisPaths, tar: tarfile.TarFile, target_dir: Path) 
     if database is None or slug is None or install_root is None:
         raise LutrisPorterError("Malformed export: no database.json found")
 
-    restored_database = restore_paths(database, str(install_root), GAME_ROOT_PLACEHOLDER)
+    restored_database = restore_paths(
+        database, str(install_root), GAME_ROOT_PLACEHOLDER
+    )
 
     restored_config = (
-        config_text.replace(GAME_ROOT_PLACEHOLDER, str(install_root)) if config_text else ""
+        config_text.replace(GAME_ROOT_PLACEHOLDER, str(install_root))
+        if config_text
+        else ""
     )
 
     config_file_path = paths.games_config_dir / f"{restored_database['configpath']}.yml"
@@ -104,7 +121,9 @@ def _strip_top_level(name: str) -> str | None:
 
 
 def _is_game_member(member_path: str) -> bool:
-    return member_path == GAME_MEMBER_PREFIX or member_path.startswith(f"{GAME_MEMBER_PREFIX}/")
+    return member_path == GAME_MEMBER_PREFIX or member_path.startswith(
+        f"{GAME_MEMBER_PREFIX}/"
+    )
 
 
 def _read_member(tar: tarfile.TarFile, member: tarfile.TarInfo) -> bytes:
@@ -157,7 +176,11 @@ def _extract_game_member(
 
 
 def _install_artwork_member(
-    tar: tarfile.TarFile, member: tarfile.TarInfo, member_path: str, paths: LutrisPaths, slug: str
+    tar: tarfile.TarFile,
+    member: tarfile.TarInfo,
+    member_path: str,
+    paths: LutrisPaths,
+    slug: str,
 ) -> None:
     for kind in ARTWORK_KINDS:
         for extension in ARTWORK_EXTENSIONS:
@@ -171,9 +194,16 @@ def _install_artwork_member(
             return
 
 
-def _prepare_for_insert(database: dict[str, Any], existing_id: int | None) -> dict[str, Any]:
+def _prepare_for_insert(
+    database: dict[str, Any], existing_id: int | None
+) -> dict[str, Any]:
     """Reset play stats and timestamps; reuse existing DB id if available."""
-    res = {**database, "lastplayed": None, "playtime": 0, "installed_at": int(time.time())}
+    res = {
+        **database,
+        "lastplayed": None,
+        "playtime": 0,
+        "installed_at": int(time.time()),
+    }
     if existing_id is not None:
         res["id"] = existing_id
     elif "id" in res:

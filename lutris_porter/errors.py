@@ -30,7 +30,9 @@ class GameDirectoryNotFoundError(LutrisPorterError):
 
 class InstalledSlugAlreadyExistsError(LutrisPorterError):
     def __init__(self, slug: str) -> None:
-        super().__init__(f"A game with slug '{slug}' is already installed in the database")
+        super().__init__(
+            f"A game with slug '{slug}' is already installed in the database"
+        )
 
 
 class DestinationExistsError(LutrisPorterError):
@@ -40,10 +42,17 @@ class DestinationExistsError(LutrisPorterError):
 
 class InvalidCompressionSettingError(LutrisPorterError):
     def __init__(
-        self, name: str, value: int, lower: int, upper: int, zero_means_auto: bool = False
+        self,
+        name: str,
+        value: int,
+        lower: int,
+        upper: int,
+        zero_means_auto: bool = False,
     ) -> None:
         auto_note = " (or 0 for automatic)" if zero_means_auto else ""
-        super().__init__(f"Invalid {name} {value}: must be between {lower} and {upper}{auto_note}")
+        super().__init__(
+            f"Invalid {name} {value}: must be between {lower} and {upper}{auto_note}"
+        )
 
 
 class TarballFetchError(LutrisPorterError):
