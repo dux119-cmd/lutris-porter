@@ -1,51 +1,32 @@
 # lutris-porter
 
-Export and import Lutris games via compressed tarballs.
+Export and import Lutris games using compressed standalone archives.
 
 Requires **Python 3.14**
-
-## Install
-
-```sh
-pip install -e .
-```
-
-(or just run it in place with `python -m lutris_porter`)
 
 ## Usage
 
 List installed games:
 
 ```sh
-lutris-porter --list
+./lutris-porter.py --list
 ```
 
 Export a game (from the `--list` output):
 
 ```sh
-lutris-porter export GAME OUTPUT-DIR
+./lutris-porter.py export GAME ARCHIVES-DIR
 
-# exports portable <output-dir>/<game>.tar.zst tarball
+# exports portable <archives-dir>/<game>.tar.zst archive
 ```
 
-Import a game (using a previously exported tarball):
+Import a game from a previously exported archive:
 
 ```sh
-lutris-porter import /path/to/GAME.tar.zst INSTALL-DIR
-or
-lutris-porter import https://path/to/GAME.tar.zst INSTALL-DIR
+./lutris-porter.py import /path/to/GAME.tar.zst GAMES-PARENT-DIR
+./lutris-porter.py import https://path/to/GAME.tar.zst GAMES-PARENT-DIR
 
-# imports game files to <install-dir>/<slug>/...
+# imports the game into <games-parent-dir>/<game>
 ```
-
-## Tests
-
-```sh
-python -m unittest discover
-```
-
-Modules that import `zstd_io` (`cli`, `export`, `importer`) need Python's
-3.14+ `compression.zstd`; their tests skip themselves automatically on
-older interpreters instead of failing.
 
 
