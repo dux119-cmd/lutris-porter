@@ -98,9 +98,9 @@ def connect(db_path: Path) -> Iterator[sqlite3.Connection]:
         connection.close()
 
 
-def list_slugs(connection: sqlite3.Connection) -> list[str]:
-    rows = connection.execute("SELECT slug FROM games ORDER BY slug").fetchall()
-    return [row["slug"] for row in rows]
+def list_games(connection: sqlite3.Connection) -> list[dict[str, Any]]:
+    rows = connection.execute("SELECT * FROM games ORDER BY slug").fetchall()
+    return [dict(row) for row in rows]
 
 
 def find_game_by_slug(
@@ -208,6 +208,11 @@ def _exe_path(config_text: str) -> str | None:
     return None
 
 
+def _resolve_exe_path(exe: str, base_dir: Path) -> Path:
+    """Resolve a config exe entry, treating a relative path as relative to base_dir."""
+    return Path(exe) if exe.startswith("/") else base_dir / exe
+
+
 def _root_from_absolute_exe(config_text: str, slug: str) -> str | None:
     exe = _exe_path(config_text)
     if not exe or not exe.startswith("/"):
@@ -269,6 +274,16 @@ def _open_for_read(source: Path | IO[bytes]) -> IO[bytes]:
     _, max_window_log = zstd.DecompressionParameter.window_log_max.bounds()
     options = {zstd.DecompressionParameter.window_log_max: max_window_log}
     return zstd.ZstdFile(source, "rb", options=options)
+
+
+def _format_size(num_bytes: int) -> str:
+    """Human-readable byte count, e.g. '128.0 MiB'."""
+    size = float(num_bytes)
+    for unit in ("B", "KiB", "MiB"):
+        if size < 1024:
+            return f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} GiB"
 
 
 # --------------------------------------------------------------------------
@@ -366,11 +381,13 @@ def export_game(
         game_row = find_game_by_slug(connection, slug)
     if game_row is None:
         raise LutrisPorterError(f"No game found with slug '{slug}'")
+    print(f"Found game '{slug}' ({game_row.get('name', slug)!r}, runner={game_row.get('runner', '?')})")
 
     config_path = paths.games_config_dir / f"{game_row['configpath']}.yml"
     if not config_path.exists():
         raise LutrisPorterError(f"Config file not found: {config_path}")
     config_text = config_path.read_text(encoding="utf-8")
+    print(f"Loaded config: {config_path}")
 
     # Strip the installed_at numeric suffix from configpath, if present.
     installed_at = game_row.get("installed_at")
@@ -391,19 +408,50 @@ def export_game(
         game_row.get("directory"),
         game_dir_override=game_dir_override,
     )
+    print(f"Game directory: {game_root}")
+
+    if game_dir_override is not None:
+        _validate_exe_under_override(config_text, game_dir_override)
 
     target_dir.mkdir(parents=True, exist_ok=True)
     final_path = target_dir / f"{slug}.tar.zst"
     partial_path = final_path.with_name(f"{final_path.name}.part")
 
+    print(
+        f"Compressing with zstd: level={_COMPRESSION_LEVEL} "
+        f"window_log={_WINDOW_LOG} threads={os.cpu_count() + 1} long_distance_matching=on"
+    )
+    started = time.perf_counter()
     try:
         _write_tarball(partial_path, paths, slug, game_row, config_text, game_root)
     except BaseException:
         partial_path.unlink(missing_ok=True)
         raise
+    elapsed = time.perf_counter() - started
 
     partial_path.rename(final_path)
+    size = final_path.stat().st_size
+    print(f"Wrote {final_path} ({_format_size(size)}, {elapsed:.1f}s)")
     return final_path
+
+
+def _validate_exe_under_override(config_text: str, game_dir_override: Path) -> None:
+    """Fail fast if the config's exe can't be found relative to --game-dir.
+
+    A relative exe path is interpreted relative to the override directory,
+    not Lutris's default games directory, since the override says "the
+    game actually lives here".
+    """
+    exe = _exe_path(config_text)
+    if not exe:
+        return
+    resolved_exe = _resolve_exe_path(exe, game_dir_override)
+    print(f"Resolved exe: {resolved_exe}")
+    if not resolved_exe.exists():
+        raise LutrisPorterError(
+            f"Executable not found at {resolved_exe} "
+            f"(exe '{exe}' resolved against --game-dir {game_dir_override})"
+        )
 
 
 def _write_tarball(
@@ -421,6 +469,7 @@ def _write_tarball(
                 f"{slug}/database.json",
                 json.dumps(strip_paths(game_row, game_root), indent=2).encode("utf-8"),
             )
+            print(f"  added {slug}/database.json")
 
             stripped_config = strip_config_keys(
                 config_text.replace(str(game_root), GAME_ROOT_PLACEHOLDER)
@@ -428,8 +477,10 @@ def _write_tarball(
             _add_bytes_member(
                 tar, f"{slug}/config.yml", stripped_config.encode("utf-8")
             )
+            print(f"  added {slug}/config.yml")
 
             _add_artwork(tar, paths, slug)
+            print(f"  adding {slug}/game from {game_root} ...")
             tar.add(game_root, arcname=f"{slug}/game", filter=_make_game_filter(slug))
 
 
@@ -447,6 +498,7 @@ def _add_artwork(tar: tarfile.TarFile, paths: LutrisPaths, slug: str) -> None:
         )
         if source:
             tar.add(source, arcname=f"{slug}/{export_name}{source.suffix}")
+            print(f"  added {slug}/{export_name}{source.suffix}")
 
 
 # --------------------------------------------------------------------------
@@ -482,10 +534,17 @@ def _open_source(tarball: Path | str) -> Iterator[IO[bytes]]:
 
 
 def import_game(paths: LutrisPaths, tarball: Path | str, target_dir: Path) -> str:
+    print(f"Importing from {tarball}")
+    _, max_window_log = zstd.DecompressionParameter.window_log_max.bounds()
+    print(f"Decompressing with zstd: window_log_max={max_window_log}")
+    started = time.perf_counter()
     with _open_source(tarball) as raw:
         with _open_for_read(raw) as decompressed_stream:
             with tarfile.open(fileobj=decompressed_stream, mode="r|") as tar:
-                return _import_members(paths, tar, target_dir)
+                slug = _import_members(paths, tar, target_dir)
+    elapsed = time.perf_counter() - started
+    print(f"Finished in {elapsed:.1f}s")
+    return slug
 
 
 def _import_members(paths: LutrisPaths, tar: tarfile.TarFile, target_dir: Path) -> str:
@@ -494,6 +553,8 @@ def _import_members(paths: LutrisPaths, tar: tarfile.TarFile, target_dir: Path) 
     config_text: str | None = None
     install_root: Path | None = None
     existing_id: int | None = None
+    file_count = 0
+    byte_count = 0
 
     for member in tar:
         member_path = _strip_top_level(member.name)
@@ -505,6 +566,7 @@ def _import_members(paths: LutrisPaths, tar: tarfile.TarFile, target_dir: Path) 
             slug, install_root, existing_id = _resolve_install_root(
                 paths, database, target_dir
             )
+            print(f"  found database.json -> slug='{slug}', installing to {install_root}")
             continue
 
         if slug is None or install_root is None:
@@ -514,13 +576,17 @@ def _import_members(paths: LutrisPaths, tar: tarfile.TarFile, target_dir: Path) 
 
         if member_path == "config.yml":
             config_text = _read_member(tar, member).decode("utf-8")
+            print("  read config.yml")
         elif _is_game_member(member_path):
-            _extract_game_member(tar, member, member_path, install_root)
+            byte_count += _extract_game_member(tar, member, member_path, install_root)
+            file_count += 1
         else:
-            _install_artwork_member(tar, member, member_path, paths, slug)
+            if _install_artwork_member(tar, member, member_path, paths, slug):
+                print(f"  added artwork {member_path}")
 
     if database is None or slug is None or install_root is None:
         raise LutrisPorterError("Malformed export: no database.json found")
+    print(f"  extracted {file_count} game entries ({_format_size(byte_count)})")
 
     restored_database = restore_paths(database, str(install_root))
     restored_config = (
@@ -532,6 +598,7 @@ def _import_members(paths: LutrisPaths, tar: tarfile.TarFile, target_dir: Path) 
     config_file_path = paths.games_config_dir / f"{restored_database['configpath']}.yml"
     config_file_path.parent.mkdir(parents=True, exist_ok=True)
     config_file_path.write_text(restored_config, encoding="utf-8")
+    print(f"  wrote config: {config_file_path}")
 
     with connect(paths.db_path) as connection:
         insert_game(connection, _prepare_for_insert(restored_database, existing_id))
@@ -579,26 +646,27 @@ def _resolve_install_root(
 
 def _extract_game_member(
     tar: tarfile.TarFile, member: tarfile.TarInfo, member_path: str, install_root: Path
-) -> None:
+) -> int:
     relative = PurePosixPath(member_path).relative_to(_GAME_MEMBER_PREFIX)
     destination = install_root if str(relative) == "." else install_root / relative
 
     if member.isdir():
         destination.mkdir(parents=True, exist_ok=True)
-        return
+        return 0
 
     destination.parent.mkdir(parents=True, exist_ok=True)
 
     if member.issym():
         os.symlink(member.linkname, destination)
-        return
+        return 0
 
     if not member.isfile():
-        return  # skip device/fifo/socket members
+        return 0  # skip device/fifo/socket members
 
     with destination.open("wb") as out_file:
         shutil.copyfileobj(tar.extractfile(member), out_file, _COPY_CHUNK_SIZE)
     os.chmod(destination, member.mode)
+    return member.size
 
 
 def _install_artwork_member(
@@ -607,18 +675,19 @@ def _install_artwork_member(
     member_path: str,
     paths: LutrisPaths,
     slug: str,
-) -> None:
+) -> bool:
     name, _, extension = member_path.rpartition(".")
     if extension not in ARTWORK_EXTENSIONS:
-        return
+        return False
     stem = artwork_paths(paths, slug).get(name)
     if stem is None:
-        return
+        return False
 
     destination = Path(f"{stem}.{extension}")
     destination.parent.mkdir(parents=True, exist_ok=True)
     with destination.open("wb") as out_file:
         shutil.copyfileobj(tar.extractfile(member), out_file)
+    return True
 
 
 def _prepare_for_insert(
@@ -701,13 +770,28 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
+def _format_game_listing(game: dict[str, Any]) -> str:
+    """One-line, human-readable summary of a games-table row for `--list`."""
+    name = game.get("name") or game["slug"]
+    runner = game.get("runner") or "?"
+    platform = game.get("platform") or "?"
+    installed = "yes" if game.get("installed") else "no"
+    directory = game.get("directory") or "-"
+    return (
+        f"{game['slug']:<30} name={name!r} runner={runner} "
+        f"platform={platform} installed={installed} dir={directory}"
+    )
+
+
 def _dispatch(
     parser: argparse.ArgumentParser, paths: LutrisPaths, args: argparse.Namespace
 ) -> None:
     if args.list_games:
         with connect(paths.db_path) as connection:
-            for slug in list_slugs(connection):
-                print(slug)
+            games = list_games(connection)
+        print(f"{len(games)} game(s) in {paths.db_path}")
+        for game in games:
+            print(_format_game_listing(game))
     elif args.command == "export":
         tarball = export_game(
             paths, args.slug, args.target_dir, game_dir_override=args.game_dir
